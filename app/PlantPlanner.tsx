@@ -45,7 +45,7 @@ export default function PlantPlanner() {
   const [hoveredPlantIndex, setHoveredPlantIndex] = useState<number | null>(null); // NEW: for alt-hover highlight
   const [currentPage, setCurrentPage] = useState(0); // NEW: pagination
   const [showAutosavePrompt, setShowAutosavePrompt] = useState(false);
-  const rowsPerPage = 10;
+  const rowsPerPage = 5; // CHANGED: show max 5 rows per page
   const tableRowRefs = useRef<(HTMLTableRowElement | null)[]>([]); // For scrolling
   const svgRef = useRef<SVGSVGElement>(null);
   const fullCsvData = useRef<any[]>([]); // Store full CSV rows for table
@@ -651,6 +651,13 @@ export default function PlantPlanner() {
           const totalPages = Math.ceil(plantedRows.length / rowsPerPage);
           const pagedRows = plantedRows.slice(currentPage * rowsPerPage, (currentPage + 1) * rowsPerPage);
           tableRowRefs.current = [];
+          // Determine group highlight: if hovering a plant in SVG, highlight all rows of that type
+          let groupHighlightName: string | null = null;
+          if (typeof hoveredPlantIndex === 'number' && hoveredPlantIndex >= 0 && plants[hoveredPlantIndex]) {
+            groupHighlightName = plants[hoveredPlantIndex].name;
+          } else if (hoveredPlantName) {
+            groupHighlightName = hoveredPlantName;
+          }
           return (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 900, background: '#fff', border: '1px solid #ccc', fontSize: '70%' }}>
@@ -664,6 +671,7 @@ export default function PlantPlanner() {
                 <tbody>
                   {pagedRows.map((row: any, i: number) => {
                     const globalIdx = currentPage * rowsPerPage + i;
+                    const isGroupHighlighted = groupHighlightName && row.pflanzenname === groupHighlightName;
                     return (
                       <tr
                         key={globalIdx}
@@ -682,8 +690,8 @@ export default function PlantPlanner() {
                               ? '#e3f2fd' // blue for alt-hovered plant
                               : hoveredRowIndex === globalIdx
                               ? '#e3f2fd' // blue for individual
-                              : hoveredPlantName === row.pflanzenname
-                              ? '#fffbe6' // gold for group
+                              : isGroupHighlighted
+                              ? '#fffbe6' // gold for group highlight
                               : undefined,
                         }}
                       >
@@ -701,9 +709,61 @@ export default function PlantPlanner() {
               </table>
               {/* Pagination controls */}
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, margin: '12px 0' }}>
-                <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0} style={{ padding: '4px 12px' }}>←</button>
-                <span>Seite {currentPage + 1} / {totalPages}</span>
-                <button onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage === totalPages - 1} style={{ padding: '4px 12px' }}>→</button>
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                  disabled={currentPage === 0}
+                  style={{
+                    padding: '4px 12px',
+                    border: 'none',
+                    borderRadius: 4,
+                    background: currentPage === 0 ? '#eee' : '#f7f7f7',
+                    color: currentPage === 0 ? '#aaa' : '#c00',
+                    fontWeight: 700,
+                    fontSize: 20,
+                    cursor: currentPage === 0 ? 'not-allowed' : 'pointer',
+                    transition: 'background 0.2s, color 0.2s',
+                  }}
+                  onMouseEnter={e => {
+                    if (currentPage !== 0) {
+                      e.currentTarget.style.background = '#c00';
+                      e.currentTarget.style.color = '#fff';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (currentPage !== 0) {
+                      e.currentTarget.style.background = '#f7f7f7';
+                      e.currentTarget.style.color = '#c00';
+                    }
+                  }}
+                >←</button>
+                <span style={{ fontSize: 16, fontWeight: 500 }}>Seite {currentPage + 1} / {totalPages}</span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={currentPage === totalPages - 1}
+                  style={{
+                    padding: '4px 12px',
+                    border: 'none',
+                    borderRadius: 4,
+                    background: currentPage === totalPages - 1 ? '#eee' : '#f7f7f7',
+                    color: currentPage === totalPages - 1 ? '#aaa' : '#c00',
+                    fontWeight: 700,
+                    fontSize: 20,
+                    cursor: currentPage === totalPages - 1 ? 'not-allowed' : 'pointer',
+                    transition: 'background 0.2s, color 0.2s',
+                  }}
+                  onMouseEnter={e => {
+                    if (currentPage !== totalPages - 1) {
+                      e.currentTarget.style.background = '#c00';
+                      e.currentTarget.style.color = '#fff';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (currentPage !== totalPages - 1) {
+                      e.currentTarget.style.background = '#f7f7f7';
+                      e.currentTarget.style.color = '#c00';
+                    }
+                  }}
+                >→</button>
               </div>
             </div>
           );
