@@ -40,9 +40,12 @@ export default function PlantPlanner() {
   const [validImages, setValidImages] = useState<Set<string>>(new Set());
   const [isMetaDown, setIsMetaDown] = useState(false);
   const [isAltDown, setIsAltDown] = useState(false); // NEW: track Option/Alt key
+  const [isShiftDown, setIsShiftDown] = useState(false); // Track Shift key for plant move
   const [hoveredPlantName, setHoveredPlantName] = useState<string | null>(null);
   const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null); // NEW: track hovered row index
   const [hoveredPlantIndex, setHoveredPlantIndex] = useState<number | null>(null); // NEW: for alt-hover highlight
+  const [draggedPlantIndex, setDraggedPlantIndex] = useState<number | null>(null);
+  const [dragOffset, setDragOffset] = useState<{dx: number, dy: number} | null>(null);
   const [currentPage, setCurrentPage] = useState(0); // NEW: pagination
   const [showAutosavePrompt, setShowAutosavePrompt] = useState(false);
   const rowsPerPage = 5; // CHANGED: show max 5 rows per page
@@ -95,10 +98,12 @@ export default function PlantPlanner() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey) setIsMetaDown(true);
       if (e.altKey) setIsAltDown(true);
+      if (e.shiftKey) setIsShiftDown(true);
     };
     const handleKeyUp = (e: KeyboardEvent) => {
       if (!e.metaKey) setIsMetaDown(false);
       if (!e.altKey) setIsAltDown(false);
+      if (!e.shiftKey) setIsShiftDown(false);
     };
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
@@ -121,6 +126,7 @@ export default function PlantPlanner() {
 
   // Only allow placing or deleting if plantTypes is loaded and selectedType is valid
   function handleSvgClick(e: React.MouseEvent<SVGSVGElement, MouseEvent>) {
+    if (isShiftDown || draggedPlantIndex !== null) return; // Disable plant setting while moving
     const svgPoint = getSvgCoords(e);
     // If Command (metaKey) is pressed, delete nearest plant
     if (e.metaKey) {
@@ -169,6 +175,12 @@ export default function PlantPlanner() {
     }
     const { x, y } = getSvgCoords(e);
     setPreview({ x, y });
+    // Dragging plant
+    if (isShiftDown && draggedPlantIndex !== null && dragOffset) {
+      setPlants(plants => plants.map((p, i) =>
+        i === draggedPlantIndex ? { ...p, x: x - dragOffset.dx, y: y - dragOffset.dy } : p
+      ));
+    }
   }
 
   function handleSvgMouseLeave() {
@@ -293,6 +305,35 @@ export default function PlantPlanner() {
       setShowAutosavePrompt(true);
     }
   }, []);
+
+  // --- Plant drag handlers for Shift+Click+Drag ---
+  function handleSvgMouseDown(e: React.MouseEvent<SVGSVGElement, MouseEvent>) {
+    if (!isShiftDown) return;
+    const svgPoint = getSvgCoords(e);
+    // Find plant under cursor
+    let foundIdx: number | null = null;
+    let foundOffset: {dx: number, dy: number} | null = null;
+    for (let i = 0; i < plants.length; ++i) {
+      const p = plants[i];
+      const dist = Math.sqrt((p.x - svgPoint.x) ** 2 + (p.y - svgPoint.y) ** 2);
+      if (dist <= p.radius) {
+        foundIdx = i;
+        foundOffset = { dx: svgPoint.x - p.x, dy: svgPoint.y - p.y };
+        break;
+      }
+    }
+    if (foundIdx !== null && foundOffset) {
+      setDraggedPlantIndex(foundIdx);
+      setDragOffset(foundOffset);
+      setPreview(null); // Hide preview while dragging
+    }
+  }
+  function handleSvgMouseUp(e: React.MouseEvent<SVGSVGElement, MouseEvent>) {
+    if (draggedPlantIndex !== null) {
+      setDraggedPlantIndex(null);
+      setDragOffset(null);
+    }
+  }
 
   return (
     <div className="w-full h-full p-0 m-0" style={{ boxSizing: "border-box", minHeight: '100vh', background: '#fff' }}>
@@ -456,31 +497,35 @@ export default function PlantPlanner() {
             width={BEET_WIDTH}
             height={BEET_HEIGHT}
             viewBox={`0 0 ${BEET_WIDTH} ${BEET_HEIGHT}`}
-            style={{ width: BEET_WIDTH, height: BEET_HEIGHT, cursor: isMetaDown ? "pointer" : isAltDown ? "pointer" : (plantTypes.length > 0 && selectedType ? "crosshair" : "not-allowed"), display: "block", position: 'relative', zIndex: 1, background: 'transparent' }}
-            onClick={handleSvgClick}
-            onMouseMove={e => {
-              handleSvgMouseMove(e);
-              if (isAltDown) {
-                // Find if hovering over a plant
-                const svgPoint = getSvgCoords(e);
-                let foundIdx: number | null = null;
-                for (let i = 0; i < plants.length; ++i) {
-                  const p = plants[i];
-                  const dist = Math.sqrt((p.x - svgPoint.x) ** 2 + (p.y - svgPoint.y) ** 2);
-                  if (dist <= p.radius) {
-                    foundIdx = i;
-                    break;
-                  }
-                }
-                setHoveredPlantIndex(foundIdx);
-              } else {
-                setHoveredPlantIndex(null);
-              }
+            style={{
+              width: BEET_WIDTH,
+              height: BEET_HEIGHT,
+              cursor: isMetaDown
+                ? "pointer"
+                : isAltDown
+                ? "pointer"
+                : isShiftDown && (draggedPlantIndex !== null)
+                ? "none" // Hide system cursor while dragging with Shift
+                : isShiftDown
+                ? "pointer"
+                : plantTypes.length > 0 && selectedType
+                ? "crosshair"
+                : "not-allowed",
+              display: "block",
+              position: 'relative',
+              zIndex: 1,
+              background: 'transparent',
             }}
+            onClick={handleSvgClick}
+            onMouseMove={handleSvgMouseMove}
             onMouseLeave={() => {
               handleSvgMouseLeave();
               setHoveredPlantIndex(null);
+              setDraggedPlantIndex(null);
+              setDragOffset(null);
             }}
+            onMouseDown={handleSvgMouseDown}
+            onMouseUp={handleSvgMouseUp}
           >
             {/* Planted images */}
             {plants.map((p, i) => {
@@ -489,6 +534,8 @@ export default function PlantPlanner() {
               let isDeleteHighlighted = false;
               let isIndividuallyHighlighted = false;
               let isGroupHighlighted = false;
+              let isShiftHighlighted = isShiftDown && hoveredPlantIndex === i;
+              let isDragged = draggedPlantIndex === i;
               // Command/Meta delete highlight logic: only the nearest plant within 30px gets the red border
               let deleteIdx = -1;
               if (isMetaDown && preview) {
@@ -519,6 +566,8 @@ export default function PlantPlanner() {
                 ? "#2196f3"
                 : isGroupHighlighted
                 ? "#FFD700"
+                : isShiftHighlighted || isDragged
+                ? "#0c0"
                 : "#800";
               let strokeWidth = isDeleteHighlighted
                 ? p.radius * 0.2 + 4
@@ -528,16 +577,20 @@ export default function PlantPlanner() {
                 ? 5
                 : isGroupHighlighted
                 ? 4
+                : isShiftHighlighted || isDragged
+                ? 8
                 : 2;
               return (
                 <g key={i}
                   onMouseEnter={() => {
                     if (isAltDown) setHoveredPlantIndex(i);
+                    if (isShiftDown) setHoveredPlantIndex(i);
                   }}
                   onMouseLeave={() => {
                     if (isAltDown) setHoveredPlantIndex(null);
+                    if (isShiftDown) setHoveredPlantIndex(null);
                   }}
-                  style={{ cursor: isAltDown ? "pointer" : undefined }}
+                  style={{ cursor: isAltDown || isShiftDown ? "pointer" : undefined }}
                 >
                   <clipPath id={`plant-clip-${i}`}><circle cx={p.x} cy={p.y} r={p.radius} /></clipPath>
                   <image
@@ -562,7 +615,7 @@ export default function PlantPlanner() {
               );
             })}
             {/* Preview circle with image */}
-            {preview && selectedType && !isMetaDown && !isAltDown && (() => {
+            {preview && selectedType && !isMetaDown && !isAltDown && !isShiftDown && draggedPlantIndex === null && (() => {
               const type = plantTypes.find(t => t.name === selectedType);
               const imgSrc = type && type.image && validImages.has(type.image.replace(/\.(jpg|jpeg)$/i, ".png")) ? `/plants/${type.image.replace(/\.(jpg|jpeg)$/i, ".png")}` : PLANT_PLACEHOLDER;
               return (
@@ -624,6 +677,24 @@ export default function PlantPlanner() {
                   style={{ userSelect: "none" }}
                 >
                   👀
+                </text>
+              </g>
+            )}
+            {/* Show 👌 at cursor if Shift is held */}
+            {isShiftDown && preview && (
+              <g pointerEvents="none">
+                <text
+                  x={preview.x}
+                  y={preview.y + 8}
+                  textAnchor="middle"
+                  fontSize={36}
+                  fontWeight="bold"
+                  fill="#0c0"
+                  stroke="#fff"
+                  strokeWidth={2}
+                  style={{ userSelect: "none" }}
+                >
+                  👌
                 </text>
               </g>
             )}
